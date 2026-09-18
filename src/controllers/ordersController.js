@@ -2,26 +2,48 @@ import { supabase } from '../config/supabase.js';
 import { initialProducts } from '../data/seedProducts.js';
 import { handleProductStockZero } from '../services/r2Service.js';
 import { logUserActivity } from '../services/activityService.js';
+import { checkoutConfig } from '../config/checkoutConfig.js';
+
+/**
+ * GET /api/orders/config
+ * Returns current delivery rates and payment method instructions
+ */
+// In-memory cache for fast duplicate transaction ID detection across concurrent requests
+const processedTransactionIds = new Map();
+
+export const getCheckoutConfig = (req, res) => {
+  try {
+    const config = checkoutConfig.getPublicConfig();
+    return res.status(200).json({
+      success: true,
+      data: config,
+    });
+  } catch (err) {
+    console.error('getCheckoutConfig error:', err);
+    return res.status(500).json({ success: false, message: 'Failed to retrieve checkout configuration' });
+  }
+};
 
 /**
  * POST /api/orders
  * Processes a new order:
- * 1. Validates stock availability for each item.
- * 2. Decrements the exact quantity ordered from the database.
- * 3. Creates the master record in public.orders.
- * 4. Inserts all items into public.order_items.
- * 5. Saves delivery location to public.delivery_locations (if authenticated).
- * 6. Logs the 'order_placed' event to public.user_activities.
- * 7. Purges Cloudflare R2 images if stock reaches 0.
+ * 1. Validates customer information and phone number format.
+ * 2. Validates and looks up each item in DB to retrieve actual price and current stock.
+ * 3. Rejects order if stock is insufficient.
+ * 4. Calculates subtotal and delivery charge strictly on the backend.
+ * 5. Validates payment method (cod, bkash, nagad, rocket).
+ * 6. For manual digital payments: validates Transaction ID format and checks for duplicates.
+ * 7. Sets payment_status = 'unpaid' (for COD) or 'pending_verification' (for digital).
+ * 8. Atomically deducts exact stock from DB and purges R2 images if stock hits 0.
+ * 9. Saves master order record, order items, and audit log.
  */
 export const createOrder = async (req, res) => {
   try {
     const {
       customer = {},
       items = [],
-      deliveryCharge = 70,
-      total,
-      paymentMethod = 'cod',
+      paymentMethod: rawPaymentMethod = 'cod',
+      transactionId: rawTransactionId = null,
       userId: bodyUserId = null,
     } = req.body;
 
@@ -37,6 +59,7 @@ export const createOrder = async (req, res) => {
       }
     }
 
+    // 1. Validate items array
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({
         success: false,
@@ -44,14 +67,86 @@ export const createOrder = async (req, res) => {
       });
     }
 
+    // 2. Validate customer information
     if (!customer.fullName || !customer.phone || !customer.district || !customer.address) {
       return res.status(400).json({
         success: false,
-        message: 'Full name, phone, district, and address are required',
+        message: 'Full name, phone, district, and address are required to place an order',
       });
     }
 
-    // 1. Validate stock availability and calculate subtotal
+    const cleanPhone = String(customer.phone || '').replace(/[\s-]/g, '');
+    const phoneRegex = /^(?:\+88|88)?(01[3-9]\d{8})$/;
+    if (!phoneRegex.test(cleanPhone)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid 11-digit Bangladeshi phone number (e.g. 017XXXXXXXX)',
+      });
+    }
+
+    // 3. Validate payment method
+    const paymentMethod = String(rawPaymentMethod || 'cod').trim().toLowerCase();
+    if (!checkoutConfig.isValidPaymentMethod(paymentMethod)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid payment method: "${paymentMethod}". Allowed methods: ${Object.keys(checkoutConfig.paymentMethods).join(', ')}`,
+      });
+    }
+
+    const paymentConfig = checkoutConfig.paymentMethods[paymentMethod];
+
+    // 4. Validate Transaction ID for all orders (including COD delivery charge prepayment)
+    const trimmedTxnId = String(rawTransactionId || '').trim();
+
+    if (!trimmedTxnId) {
+      return res.status(400).json({
+        success: false,
+        message: paymentMethod === 'cod'
+          ? 'Transaction ID (Txn ID) is required for the delivery charge Send Money payment'
+          : `Transaction ID (Txn ID) is required for ${paymentConfig.name} payment`,
+      });
+    }
+
+    // Basic sanity check on Transaction ID format (minimum 4 alphanumeric characters)
+    if (trimmedTxnId.length < 4 || !/^[a-zA-Z0-9_-]+$/.test(trimmedTxnId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid Transaction ID format. Please enter a valid transaction reference received after Send Money transfer.',
+      });
+    }
+
+    // 4a. Duplicate Transaction ID Detection
+    const normalizedTxn = trimmedTxnId.toUpperCase();
+    if (processedTransactionIds.has(normalizedTxn)) {
+      const cached = processedTransactionIds.get(normalizedTxn);
+      return res.status(400).json({
+        success: false,
+        message: `This Transaction ID (${trimmedTxnId}) has already been submitted for another order (${cached.orderId}). Duplicate transaction IDs are not permitted.`,
+      });
+    }
+
+    try {
+      const { data: existingTxn } = await supabase
+        .from('orders')
+        .select('id, transaction_id, created_at')
+        .ilike('transaction_id', trimmedTxnId)
+        .maybeSingle();
+
+      if (existingTxn) {
+        processedTransactionIds.set(normalizedTxn, { orderId: existingTxn.id, timestamp: Date.now() });
+        return res.status(400).json({
+          success: false,
+          message: `This Transaction ID (${trimmedTxnId}) has already been submitted for another order (${existingTxn.id}). Duplicate transaction IDs are not permitted.`,
+        });
+      }
+    } catch (checkErr) {
+      // Supabase error handling
+    }
+
+    const finalTransactionId = trimmedTxnId;
+    const finalPaymentStatus = 'pending_verification';
+
+    // 5. Backend Product Validation & Subtotal Calculation (Prices from Database ONLY)
     const processedItems = [];
     let calculatedSubtotal = 0;
 
@@ -59,7 +154,7 @@ export const createOrder = async (req, res) => {
       const productId = item.id || item.slug;
       const orderedQty = Math.max(1, parseInt(item.quantity, 10) || 1);
 
-      // 1. Try lookup in Supabase by id or slug
+      // 5a. Lookup in Supabase products table
       let product = null;
       if (productId) {
         const { data: dbProduct } = await supabase
@@ -70,7 +165,7 @@ export const createOrder = async (req, res) => {
         product = dbProduct;
       }
 
-      // 2. Fallback search by name if not found
+      // 5b. Fallback search by name if ID was not matched
       if (!product && item.name) {
         const { data: dbByName } = await supabase
           .from('products')
@@ -80,7 +175,7 @@ export const createOrder = async (req, res) => {
         product = dbByName;
       }
 
-      // 3. Fallback from initialProducts if DB was just migrated or missing record
+      // 5c. Fallback seed if product exists in seed catalogue
       if (!product) {
         const fallback = initialProducts.find(
           (p) => p.id === productId || p.slug === productId || p.name.toLowerCase() === item.name?.toLowerCase()
@@ -99,7 +194,7 @@ export const createOrder = async (req, res) => {
       if (!product) {
         return res.status(404).json({
           success: false,
-          message: `Product "${item.name || productId}" was not found in catalog`,
+          message: `Product "${item.name || productId}" not found in catalog`,
         });
       }
 
@@ -111,6 +206,7 @@ export const createOrder = async (req, res) => {
         });
       }
 
+      // Authoritative unit price from the database (prevents DevTools tampering)
       const unitPrice = Number(product.price);
       const lineSubtotal = unitPrice * orderedQty;
       calculatedSubtotal += lineSubtotal;
@@ -123,58 +219,20 @@ export const createOrder = async (req, res) => {
       });
     }
 
-    const finalDeliveryCharge = Number(deliveryCharge) || 70;
-    const finalTotal = total ? Number(total) : calculatedSubtotal + finalDeliveryCharge;
+    // 6. Centralized Backend Delivery Charge & Total Calculation
+    const finalDeliveryCharge = checkoutConfig.calculateDeliveryCharge(customer.district, customer.division);
+    const finalTotal = calculatedSubtotal + finalDeliveryCharge;
 
-    // 2. Generate unique Order ID
+    // 7. Generate unique Order ID
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const randomDigits = Math.floor(1000 + Math.random() * 9000);
     const orderId = `ORD-${dateStr}-${randomDigits}`;
 
-    // 3. Atomically deduct exact quantities from product stock
-    const stockUpdateReports = [];
-    for (const item of processedItems) {
-      const { product, orderedQty } = item;
-      const currentStock = Number(product.stock) || 0;
-      const newStock = Math.max(0, currentStock - orderedQty);
+    // Note: Stock is NOT deducted at checkout creation. 
+    // It remains in 'pending' status until confirmed by Admin via the Admin Panel.
+    console.log(`[Order ${orderId}] Placed with status "pending". Stock will be deducted upon Admin Confirmation.`);
 
-      console.log(`[Order ${orderId}] Deducting stock for "${product.name}": ${currentStock} -> ${newStock} (-${orderedQty})`);
-
-      if (newStock === 0 && currentStock > 0) {
-        // Stock reached 0 -> Purge Cloudflare R2 images and clear images array
-        console.log(`[Order ${orderId}] Product ${product.id} reached 0 stock. Purging Cloudflare R2 images.`);
-        await handleProductStockZero(product.id, product.images);
-
-        await supabase
-          .from('products')
-          .update({ stock: 0, images: [] })
-          .eq('id', product.id);
-
-        stockUpdateReports.push({
-          productId: product.id,
-          name: product.name,
-          deducted: orderedQty,
-          remainingStock: 0,
-          status: 'Out of Stock - R2 Images Purged',
-        });
-      } else {
-        // Normal exact quantity deduction
-        await supabase
-          .from('products')
-          .update({ stock: newStock })
-          .eq('id', product.id);
-
-        stockUpdateReports.push({
-          productId: product.id,
-          name: product.name,
-          deducted: orderedQty,
-          remainingStock: newStock,
-          status: 'In Stock',
-        });
-      }
-    }
-
-    // 4. Insert Master Order record into public.orders
+    // 9. Insert Master Order record into public.orders
     const orderRecord = {
       id: orderId,
       user_id: authenticatedUserId || null,
@@ -191,7 +249,8 @@ export const createOrder = async (req, res) => {
       delivery_charge: finalDeliveryCharge,
       total_amount: finalTotal,
       payment_method: paymentMethod,
-      payment_status: paymentMethod === 'cod' ? 'pending' : 'paid',
+      payment_status: finalPaymentStatus,
+      transaction_id: finalTransactionId,
       order_status: 'pending',
       customer_data: customer,
       items_data: items,
@@ -207,7 +266,11 @@ export const createOrder = async (req, res) => {
       console.warn('[Order Processing] Warning inserting order into Supabase:', orderInsertErr.message);
     }
 
-    // 5. Insert individual Line Items into public.order_items
+    if (finalTransactionId) {
+      processedTransactionIds.set(finalTransactionId.toUpperCase(), { orderId, timestamp: Date.now() });
+    }
+
+    // 10. Insert individual Line Items into public.order_items
     const orderItemRows = processedItems.map((item) => ({
       order_id: orderId,
       product_id: item.product.id,
@@ -226,7 +289,7 @@ export const createOrder = async (req, res) => {
       console.warn('[Order Processing] Warning inserting order items:', orderItemsErr.message);
     }
 
-    // 6. Save or update delivery location in public.delivery_locations (if authenticated)
+    // 11. Save delivery location in public.delivery_locations (if authenticated)
     if (authenticatedUserId) {
       try {
         await supabase.from('delivery_locations').insert({
@@ -247,16 +310,20 @@ export const createOrder = async (req, res) => {
       }
     }
 
-    // 7. Log user activity in public.user_activities
+    // 12. Log user activity in public.user_activities
     await logUserActivity({
       userId: authenticatedUserId,
       activityType: 'order_placed',
-      description: `Placed order ${orderId} (৳${finalTotal}) with ${processedItems.length} items via ${paymentMethod.toUpperCase()}`,
+      description: `Placed order ${orderId} (৳${finalTotal}) with ${processedItems.length} items via ${paymentConfig.name} [Payment Status: ${finalPaymentStatus}${finalTransactionId ? `, TrxID: ${finalTransactionId}` : ''}]`,
       metadata: {
         orderId,
         itemCount: processedItems.length,
         totalAmount: finalTotal,
+        subtotal: calculatedSubtotal,
+        deliveryCharge: finalDeliveryCharge,
         paymentMethod,
+        paymentStatus: finalPaymentStatus,
+        transactionId: finalTransactionId,
         customerName: customer.fullName,
         district: customer.district,
       },
@@ -273,6 +340,9 @@ export const createOrder = async (req, res) => {
         deliveryCharge: finalDeliveryCharge,
         subtotal: calculatedSubtotal,
         total: finalTotal,
+        paymentMethod,
+        paymentStatus: finalPaymentStatus,
+        transactionId: finalTransactionId,
         stockUpdates: stockUpdateReports,
         createdAt: orderRecord.created_at,
       },

@@ -6,6 +6,7 @@ import imageRoutes from './imageRoutes.js';
 import orderRoutes from './orderRoutes.js';
 import authRoutes from './authRoutes.js';
 import userRoutes from './userRoutes.js';
+import adminRoutes from './adminRoutes.js';
 
 const router = Router();
 
@@ -16,5 +17,6 @@ router.use('/cart', cartRoutes);
 router.use('/images', imageRoutes);
 router.use('/auth', authRoutes);
 router.use('/user', userRoutes);
+router.use('/admin', adminRoutes);
 
 export default router;
