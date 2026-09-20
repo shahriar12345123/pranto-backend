@@ -234,6 +234,7 @@ export const createAdminProduct = async (req, res) => {
       shortDescription = '',
       description = '',
       specifications = '[]',
+      colors = '[]',
     } = req.body;
 
     if (!name || price === undefined || price === null || price === '') {
@@ -270,6 +271,15 @@ export const createAdminProduct = async (req, res) => {
       parsedSpecs = [];
     }
 
+    // Parse colors JSON or comma-separated string
+    let parsedColors = [];
+    try {
+      parsedColors = typeof colors === 'string' ? (colors.startsWith('[') ? JSON.parse(colors) : colors.split(',').map(c => c.trim()).filter(Boolean)) : colors;
+      if (!Array.isArray(parsedColors)) parsedColors = [];
+    } catch {
+      parsedColors = [];
+    }
+
     // 2. Insert record into Supabase products table
     const productRecord = {
       id: productId,
@@ -289,6 +299,7 @@ export const createAdminProduct = async (req, res) => {
       short_description: shortDescription ? shortDescription.trim() : '',
       description: description ? description.trim() : '',
       images: uploadedR2Urls,
+      colors: parsedColors,
       specifications: parsedSpecs,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -373,6 +384,7 @@ export const updateAdminProduct = async (req, res) => {
       shortDescription,
       description,
       specifications,
+      colors,
       existingImages = '[]', // List of previously stored URLs that the admin chose to keep
     } = req.body;
 
@@ -411,6 +423,17 @@ export const updateAdminProduct = async (req, res) => {
       }
     }
 
+    // Parse colors
+    let parsedColors = currentProduct.colors || [];
+    if (colors !== undefined) {
+      try {
+        parsedColors = typeof colors === 'string' ? (colors.startsWith('[') ? JSON.parse(colors) : colors.split(',').map(c => c.trim()).filter(Boolean)) : colors;
+        if (!Array.isArray(parsedColors)) parsedColors = [];
+      } catch {
+        parsedColors = currentProduct.colors || [];
+      }
+    }
+
     const newStockVal = stock !== undefined ? Math.max(0, parseInt(stock, 10)) : currentProduct.stock;
 
     // 3. Update Supabase record
@@ -428,6 +451,7 @@ export const updateAdminProduct = async (req, res) => {
       ...(shortDescription !== undefined && { short_description: shortDescription.trim() }),
       ...(description !== undefined && { description: description.trim() }),
       images: finalImagesList,
+      colors: parsedColors,
       specifications: parsedSpecs,
       updated_at: new Date().toISOString(),
     };

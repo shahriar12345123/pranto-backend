@@ -27,6 +27,7 @@ export const formatProduct = (p) => {
     shortDescription: p.short_description,
     description: p.description,
     images: Array.isArray(p.images) ? p.images : [],
+    colors: Array.isArray(p.colors) ? p.colors : [],
     specifications: Array.isArray(p.specifications) ? p.specifications : []
   };
 };

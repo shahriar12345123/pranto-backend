@@ -226,6 +226,7 @@ export const createOrder = async (req, res) => {
         orderedQty,
         unitPrice,
         lineSubtotal,
+        selectedColor: item.selectedColor || item.color || item.selected_color || '',
       });
     }
 
@@ -288,6 +289,7 @@ export const createOrder = async (req, res) => {
       product_name: item.product.name,
       product_sku: item.product.sku || '',
       product_image: item.product.images?.[0] || '',
+      selected_color: item.selectedColor || '',
       unit_price: item.unitPrice,
       quantity: item.orderedQty,
       subtotal: item.lineSubtotal,

@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS public.products (
     short_description TEXT,
     description TEXT,
     images JSONB DEFAULT '[]'::jsonb,
+    colors JSONB DEFAULT '[]'::jsonb,
     specifications JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
@@ -265,6 +266,7 @@ CREATE TABLE IF NOT EXISTS public.order_items (
     product_name TEXT NOT NULL,
     product_sku TEXT,
     product_image TEXT,
+    selected_color TEXT,
     unit_price NUMERIC(10, 2) NOT NULL,
     quantity INTEGER NOT NULL CHECK (quantity > 0),
     subtotal NUMERIC(10, 2) NOT NULL,
