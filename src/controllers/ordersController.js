@@ -45,20 +45,10 @@ export const createOrder = async (req, res) => {
       paymentMethod: rawPaymentMethod = 'cod',
       transactionId: rawTransactionId = null,
       deliveryPaymentService: rawDeliveryPaymentService = null,
-      userId: bodyUserId = null,
     } = req.body;
 
-    // Optional user authentication via Bearer token
-    let authenticatedUserId = bodyUserId;
-    if (!authenticatedUserId && req.headers.authorization?.startsWith('Bearer ')) {
-      try {
-        const token = req.headers.authorization.split(' ')[1];
-        const { data: { user } } = await supabase.auth.getUser(token);
-        if (user) authenticatedUserId = user.id;
-      } catch (authErr) {
-        // Proceed as guest checkout if token validation fails
-      }
-    }
+    // User is guaranteed authenticated by requireAuth middleware
+    const authenticatedUserId = req.user.id;
 
     // 1. Validate items array
     if (!items || !Array.isArray(items) || items.length === 0) {
