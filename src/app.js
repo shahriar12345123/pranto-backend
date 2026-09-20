@@ -1,15 +1,19 @@
 import express from "express";
 import cors from "cors";
+import compression from "compression";
 import apiRoutes from "./routes/apiRoutes.js";
 
 const app = express();
+
+app.use(compression());
 
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (like mobile apps or curl) and all web origins
     callback(null, true);
   },
-  credentials: true
+  credentials: true,
+  maxAge: 86400 // Cache CORS preflight response for 24 hours
 }));
 
 app.use(express.json());

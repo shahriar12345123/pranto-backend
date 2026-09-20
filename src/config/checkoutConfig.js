@@ -27,7 +27,7 @@ export const checkoutConfig = {
       requiresTransactionId: true,
       initialPaymentStatus: 'pending_verification',
       accountType: 'Personal',
-      accountNumber: process.env.BKASH_NUMBER || '01700-000000',
+      accountNumber: process.env.BKASH_NUMBER || '01611521209',
       instructions: [
         'Open your bKash App and select "Send Money"',
         'Enter our Personal bKash number: {accountNumber}',
@@ -44,7 +44,7 @@ export const checkoutConfig = {
       requiresTransactionId: true,
       initialPaymentStatus: 'pending_verification',
       accountType: 'Personal',
-      accountNumber: process.env.NAGAD_NUMBER || '01700-000000',
+      accountNumber: process.env.NAGAD_NUMBER || '01342250023',
       instructions: [
         'Open your Nagad App and select "Send Money"',
         'Enter our Personal Nagad number: {accountNumber}',
@@ -61,7 +61,7 @@ export const checkoutConfig = {
       requiresTransactionId: true,
       initialPaymentStatus: 'pending_verification',
       accountType: 'Personal',
-      accountNumber: process.env.ROCKET_NUMBER || '01700-000000-0',
+      accountNumber: process.env.ROCKET_NUMBER || '016115212098',
       instructions: [
         'Open your Rocket App and select "Send Money"',
         'Enter our Personal Rocket number: {accountNumber}',

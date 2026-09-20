@@ -197,6 +197,7 @@ CREATE TABLE IF NOT EXISTS public.orders (
     payment_method TEXT NOT NULL DEFAULT 'cod',
     payment_status TEXT NOT NULL DEFAULT 'unpaid',
     transaction_id TEXT,
+    delivery_payment_service TEXT,
     order_status TEXT NOT NULL DEFAULT 'pending',
     customer_data JSONB,
     items_data JSONB,
@@ -211,6 +212,7 @@ ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS delivery_charge NUMERIC(10, 2
 ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS total_amount NUMERIC(10, 2) DEFAULT 0;
 ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS customer_data JSONB;
 ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS items_data JSONB;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS delivery_payment_service TEXT;
 
 -- Safely update check constraints
 DO $$ BEGIN
@@ -467,6 +469,6 @@ END $$;
 INSERT INTO public.store_settings (key, value, description)
 VALUES 
     ('delivery', '{"insideDhaka": 70, "outsideDhaka": 130}'::jsonb, 'Standard delivery charges in BDT across Bangladesh'),
-    ('payment_accounts', '{"bkash": "01700-000000", "nagad": "01700-000000", "rocket": "01700-000000-0"}'::jsonb, 'Personal payment account numbers for manual payments'),
+    ('payment_accounts', '{"bkash": "01611521209", "nagad": "01342250023", "rocket": "016115212098"}'::jsonb, 'Personal payment account numbers for manual payments'),
     ('inventory', '{"lowStockThreshold": 5}'::jsonb, 'Threshold below which a product is flagged as low stock')
 ON CONFLICT (key) DO NOTHING;

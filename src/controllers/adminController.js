@@ -1181,9 +1181,9 @@ export const getAdminSettings = async (req, res) => {
         outsideDhaka: checkoutConfig.delivery.outsideDhaka,
       },
       paymentAccounts: settingsMap.payment_accounts || {
-        bkash: process.env.BKASH_NUMBER || '01700-000000',
-        nagad: process.env.NAGAD_NUMBER || '01700-000000',
-        rocket: process.env.ROCKET_NUMBER || '01700-000000-0',
+        bkash: process.env.BKASH_NUMBER || '01611521209',
+        nagad: process.env.NAGAD_NUMBER || '01342250023',
+        rocket: process.env.ROCKET_NUMBER || '016115212098',
       },
       inventory: settingsMap.inventory || {
         lowStockThreshold: 5,

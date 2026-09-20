@@ -44,6 +44,7 @@ export const createOrder = async (req, res) => {
       items = [],
       paymentMethod: rawPaymentMethod = 'cod',
       transactionId: rawTransactionId = null,
+      deliveryPaymentService: rawDeliveryPaymentService = null,
       userId: bodyUserId = null,
     } = req.body;
 
@@ -94,6 +95,15 @@ export const createOrder = async (req, res) => {
     }
 
     const paymentConfig = checkoutConfig.paymentMethods[paymentMethod];
+
+    // 3b. Validate delivery payment service (bKash/Nagad/Rocket) for COD orders
+    const deliveryPaymentService = rawDeliveryPaymentService ? String(rawDeliveryPaymentService).trim().toLowerCase() : null;
+    if (paymentMethod === 'cod' && !['bkash', 'nagad', 'rocket'].includes(deliveryPaymentService)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please select the payment service (bKash, Nagad, or Rocket) used to pay the delivery charge.',
+      });
+    }
 
     // 4. Validate Transaction ID for all orders (including COD delivery charge prepayment)
     const trimmedTxnId = String(rawTransactionId || '').trim();
@@ -251,6 +261,7 @@ export const createOrder = async (req, res) => {
       payment_method: paymentMethod,
       payment_status: finalPaymentStatus,
       transaction_id: finalTransactionId,
+      delivery_payment_service: deliveryPaymentService,
       order_status: 'pending',
       customer_data: customer,
       items_data: items,
@@ -343,7 +354,8 @@ export const createOrder = async (req, res) => {
         paymentMethod,
         paymentStatus: finalPaymentStatus,
         transactionId: finalTransactionId,
-        stockUpdates: stockUpdateReports,
+        deliveryPaymentService,
+        stockUpdates: [],
         createdAt: orderRecord.created_at,
       },
     });
