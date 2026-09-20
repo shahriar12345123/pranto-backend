@@ -125,6 +125,13 @@ export const getDashboardStats = async (req, res) => {
           totalProducts,
           totalCustomers,
           pendingVerificationCount: pendingVerificationPayments,
+          shippedOrdersCount: shippedOrders,
+          deliveredOrdersCount: deliveredOrders,
+          cancelledOrdersCount: cancelledOrders,
+          pendingOrdersCount: pendingOrders,
+          confirmedOrdersCount: confirmedOrders,
+          lowStockCount: lowStockProducts,
+          outOfStockCount: outOfStockProducts,
         },
         ordersByStatus: {
           pending: pendingOrders,
@@ -986,11 +993,11 @@ export const verifyPayment = async (req, res) => {
 
 /**
  * GET /api/admin/customers
- * Lists all registered users with aggregated order metrics
+ * Lists customers who have confirmed orders with aggregated order metrics
  */
 export const getAdminCustomers = async (req, res) => {
   try {
-    const { search } = req.query;
+    const { search, filter = 'confirmed' } = req.query; // 'confirmed' or 'all'
 
     let query = supabase.from('profiles').select('*').order('created_at', { ascending: false });
 
@@ -1001,11 +1008,18 @@ export const getAdminCustomers = async (req, res) => {
     const { data: profiles, error: profErr } = await query;
     if (profErr) throw profErr;
 
-    // Fetch orders to aggregate customer lifetime spend
-    const { data: orders = [] } = await supabase.from('orders').select('id, user_id, customer_email, total_amount, order_status, created_at');
+    // Fetch orders to aggregate customer lifetime spend & confirmed order status
+    const { data: orders = [] } = await supabase
+      .from('orders')
+      .select('id, user_id, customer_name, customer_email, customer_phone, total_amount, order_status, created_at');
 
-    const customerList = (profiles || []).map((prof) => {
-      const userOrders = orders.filter((o) => o.user_id === prof.id || (prof.email && o.customer_email === prof.email));
+    let customerList = (profiles || []).map((prof) => {
+      const userOrders = orders.filter(
+        (o) => o.user_id === prof.id || (prof.email && o.customer_email === prof.email)
+      );
+      const confirmedOrders = userOrders.filter((o) =>
+        ['confirmed', 'shipped', 'delivered'].includes(o.order_status)
+      );
       const totalSpent = userOrders
         .filter((o) => o.order_status !== 'cancelled')
         .reduce((sum, o) => sum + Number(o.total_amount || 0), 0);
@@ -1020,9 +1034,39 @@ export const getAdminCustomers = async (req, res) => {
         createdAt: prof.created_at,
         lastLoginAt: prof.last_login_at,
         orderCount: userOrders.length,
+        confirmedOrderCount: confirmedOrders.length,
         totalSpent,
+        hasConfirmedOrder: confirmedOrders.length > 0,
       };
     });
+
+    // Include guest buyers who placed confirmed orders if profile not registered
+    for (const ord of orders) {
+      if (['confirmed', 'shipped', 'delivered'].includes(ord.order_status)) {
+        const existsInProfiles = customerList.some(
+          (c) => c.id === ord.user_id || (ord.customer_email && c.email === ord.customer_email)
+        );
+        if (!existsInProfiles && ord.customer_name) {
+          customerList.push({
+            id: ord.user_id || `guest-${ord.id}`,
+            fullName: ord.customer_name,
+            email: ord.customer_email || 'N/A',
+            phone: ord.customer_phone || 'N/A',
+            role: 'customer',
+            createdAt: ord.created_at,
+            orderCount: 1,
+            confirmedOrderCount: 1,
+            totalSpent: Number(ord.total_amount || 0),
+            hasConfirmedOrder: true,
+            isGuest: true,
+          });
+        }
+      }
+    }
+
+    if (filter === 'confirmed') {
+      customerList = customerList.filter((c) => c.hasConfirmedOrder);
+    }
 
     return res.status(200).json({
       success: true,
@@ -1314,5 +1358,137 @@ export const updateAdminSettings = async (req, res) => {
   } catch (err) {
     console.error('updateAdminSettings error:', err);
     return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ==============================================================================
+// 9. FULL USER MANAGEMENT (GET, UPDATE, DELETE)
+// ==============================================================================
+
+/**
+ * GET /api/admin/users
+ * Lists all registered users from profiles table with search & role filter
+ */
+export const getAdminUsers = async (req, res) => {
+  try {
+    const { search, role } = req.query;
+    let query = supabase.from('profiles').select('*').order('created_at', { ascending: false });
+
+    if (search) {
+      query = query.or(`full_name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`);
+    }
+
+    if (role && role !== 'all') {
+      query = query.eq('role', role);
+    }
+
+    const { data: users, error } = await query;
+    if (error) throw error;
+
+    return res.status(200).json({
+      success: true,
+      data: users || [],
+    });
+  } catch (err) {
+    console.error('getAdminUsers error:', err);
+    return res.status(500).json({ success: false, message: err.message || 'Failed to fetch users' });
+  }
+};
+
+/**
+ * PUT /api/admin/users/:id
+ * Updates user profile details (full_name, email, phone, role, full_address)
+ */
+export const updateAdminUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { full_name, email, phone, role, full_address, address_line } = req.body;
+
+    const updatePayload = {
+      updated_at: new Date().toISOString(),
+    };
+
+    if (full_name !== undefined) updatePayload.full_name = full_name;
+    if (email !== undefined) updatePayload.email = email;
+    if (phone !== undefined) updatePayload.phone = phone;
+    if (role !== undefined) updatePayload.role = role;
+    if (full_address !== undefined || address_line !== undefined) {
+      updatePayload.full_address = full_address || address_line;
+    }
+
+    const { data: updatedUser, error } = await supabase
+      .from('profiles')
+      .update(updatePayload)
+      .eq('id', id)
+      .select('*')
+      .single();
+
+    if (error) throw error;
+
+    await logAdminAction({
+      adminUser: req.user,
+      action: 'USER_UPDATED',
+      targetType: 'user',
+      targetId: id,
+      description: `Updated profile details for user ${id} (${updatedUser.email || updatedUser.full_name})`,
+      metadata: updatePayload,
+      req,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'User details updated successfully',
+      data: updatedUser,
+    });
+  } catch (err) {
+    console.error('updateAdminUser error:', err);
+    return res.status(500).json({ success: false, message: err.message || 'Failed to update user' });
+  }
+};
+
+/**
+ * DELETE /api/admin/users/:id
+ * Deletes user profile from database
+ */
+export const deleteAdminUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { data: user, error: fetchErr } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Delete user's associated delivery locations & cart items if any
+    await supabase.from('delivery_locations').delete().eq('user_id', id);
+    await supabase.from('cart_items').delete().eq('user_id', id);
+
+    // Delete profile
+    const { error: deleteErr } = await supabase.from('profiles').delete().eq('id', id);
+    if (deleteErr) throw deleteErr;
+
+    await logAdminAction({
+      adminUser: req.user,
+      action: 'USER_DELETED',
+      targetType: 'user',
+      targetId: id,
+      description: `Deleted user ${id} (${user.email || user.full_name}) from database`,
+      metadata: { deletedUser: user },
+      req,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `User ${user.full_name || id} deleted successfully`,
+      data: { id },
+    });
+  } catch (err) {
+    console.error('deleteAdminUser error:', err);
+    return res.status(500).json({ success: false, message: err.message || 'Failed to delete user' });
   }
 };

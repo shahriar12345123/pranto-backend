@@ -18,6 +18,7 @@ export const initialProducts = [
       "https://pub-844c0557c33f43fb8bc62d1b17aa1e96.r2.dev/products/prod-001/image-1.jpg",
       "https://pub-844c0557c33f43fb8bc62d1b17aa1e96.r2.dev/products/prod-001/image-2.jpg"
     ],
+    colors: ["Black", "White"],
     specifications: [
       { key: "Brand", value: "Hoco" },
       { key: "Model", value: "WQ34plus" },
@@ -49,6 +50,7 @@ export const initialProducts = [
       "https://pub-844c0557c33f43fb8bc62d1b17aa1e96.r2.dev/products/prod-002/image-1.jpg",
       "https://pub-844c0557c33f43fb8bc62d1b17aa1e96.r2.dev/products/prod-002/image-2.jpg"
     ],
+    colors: ["Black", "White"],
     specifications: [
       { key: "Brand", value: "Apple" },
       { key: "Model", value: "2nd Generation" },
@@ -80,6 +82,7 @@ export const initialProducts = [
       "https://pub-844c0557c33f43fb8bc62d1b17aa1e96.r2.dev/products/prod-003/image-1.jpg",
       "https://pub-844c0557c33f43fb8bc62d1b17aa1e96.r2.dev/products/prod-003/image-2.jpg"
     ],
+    colors: ["Black", "White"],
     specifications: [
       { key: "Brand", value: "UISI" },
       { key: "Model", value: "Neckband" },

@@ -14,6 +14,9 @@ import {
   verifyPayment,
   getAdminCustomers,
   getAdminCustomerById,
+  getAdminUsers,
+  updateAdminUser,
+  deleteAdminUser,
   getAdminInventory,
   getAdminAuditLogs,
   getAdminSettings,
@@ -59,17 +62,22 @@ router.patch('/orders/:id/status', updateOrderStatus);
 // 4. Payment Verification Queue (Manual bKash, Nagad, Rocket, COD)
 router.patch('/orders/:id/payment', verifyPayment);
 
-// 5. Customer / User Management
+// 5. Customer Directory
 router.get('/customers', getAdminCustomers);
 router.get('/customers/:id', getAdminCustomerById);
 
-// 6. Inventory Control
+// 6. User Management (All Users Directory, Edit User, Delete User)
+router.get('/users', getAdminUsers);
+router.put('/users/:id', updateAdminUser);
+router.delete('/users/:id', deleteAdminUser);
+
+// 7. Inventory Control
 router.get('/inventory', getAdminInventory);
 
-// 7. Activity & Admin Audit Logs
+// 8. Activity & Admin Audit Logs
 router.get('/activity-logs', getAdminAuditLogs);
 
-// 8. Store Settings & Delivery Configuration
+// 9. Store Settings & Delivery Configuration
 router.get('/settings', getAdminSettings);
 router.put('/settings', updateAdminSettings);
 
