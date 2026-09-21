@@ -115,3 +115,28 @@ export const checkoutConfig = {
     };
   },
 };
+
+/**
+ * Loads and synchronizes dynamic store settings from Supabase store_settings table into checkoutConfig memory
+ */
+export const initStoreSettingsFromDb = async (supabaseClient) => {
+  if (!supabaseClient) return;
+  try {
+    const { data: settingsList = [] } = await supabaseClient.from('store_settings').select('*');
+    for (const item of settingsList || []) {
+      if (item.key === 'delivery' && item.value) {
+        if (item.value.insideDhaka !== undefined) checkoutConfig.delivery.insideDhaka = Number(item.value.insideDhaka);
+        if (item.value.outsideDhaka !== undefined) checkoutConfig.delivery.outsideDhaka = Number(item.value.outsideDhaka);
+      }
+      if (item.key === 'payment_accounts' && item.value) {
+        if (item.value.bkash && checkoutConfig.paymentMethods.bkash) checkoutConfig.paymentMethods.bkash.accountNumber = item.value.bkash;
+        if (item.value.nagad && checkoutConfig.paymentMethods.nagad) checkoutConfig.paymentMethods.nagad.accountNumber = item.value.nagad;
+        if (item.value.rocket && checkoutConfig.paymentMethods.rocket) checkoutConfig.paymentMethods.rocket.accountNumber = item.value.rocket;
+      }
+    }
+    console.log('[Store Settings] Successfully synchronized dynamic settings from database:', checkoutConfig.delivery);
+  } catch (err) {
+    console.warn('[Store Settings] Notice loading settings from database:', err.message);
+  }
+};
+

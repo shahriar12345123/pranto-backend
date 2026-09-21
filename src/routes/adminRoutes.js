@@ -15,6 +15,7 @@ import {
   getAdminCustomers,
   getAdminCustomerById,
   getAdminUsers,
+  getAdminUserOrders,
   updateAdminUser,
   deleteAdminUser,
   getAdminInventory,
@@ -66,8 +67,9 @@ router.patch('/orders/:id/payment', verifyPayment);
 router.get('/customers', getAdminCustomers);
 router.get('/customers/:id', getAdminCustomerById);
 
-// 6. User Management (All Users Directory, Edit User, Delete User)
+// 6. User Management (All Users Directory, Edit User, Delete User, User Order History)
 router.get('/users', getAdminUsers);
+router.get('/users/:id/orders', getAdminUserOrders);
 router.put('/users/:id', updateAdminUser);
 router.delete('/users/:id', deleteAdminUser);
 

@@ -1492,3 +1492,44 @@ export const deleteAdminUser = async (req, res) => {
     return res.status(500).json({ success: false, message: err.message || 'Failed to delete user' });
   }
 };
+
+/**
+ * GET /api/admin/users/:id/orders
+ * Retrieves all order records associated with a specific registered user ID or user email
+ */
+export const getAdminUserOrders = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Lookup user profile to obtain email
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('email')
+      .eq('id', id)
+      .maybeSingle();
+
+    const userEmail = profile?.email;
+
+    let query = supabase
+      .from('orders')
+      .select('*, order_items (*)')
+      .order('created_at', { ascending: false });
+
+    if (userEmail) {
+      query = query.or(`user_id.eq.${id},customer_email.eq.${userEmail}`);
+    } else {
+      query = query.eq('user_id', id);
+    }
+
+    const { data: orders, error } = await query;
+    if (error) throw error;
+
+    return res.status(200).json({
+      success: true,
+      data: orders || [],
+    });
+  } catch (err) {
+    console.error('getAdminUserOrders error:', err);
+    return res.status(500).json({ success: false, message: err.message || 'Failed to fetch user order history' });
+  }
+};

@@ -2,8 +2,13 @@ import express from "express";
 import cors from "cors";
 import compression from "compression";
 import apiRoutes from "./routes/apiRoutes.js";
+import { supabase } from "./config/supabase.js";
+import { initStoreSettingsFromDb } from "./config/checkoutConfig.js";
 
 const app = express();
+
+// Initialize dynamic store settings from Supabase
+initStoreSettingsFromDb(supabase);
 
 app.use(compression());
 
